@@ -118,8 +118,12 @@ if image_file:
         st.markdown("### 🗂️ Sample Reference Conditions Used:")
         for name, entry in list(derm_data.items())[:5]:
             with st.expander(f"{name}"):
-                st.image(entry["image_url"], width=300)
-                st.write(entry["description"])
+                if "image_url" in entry and entry["image_url"]:
+                    st.image(entry["image_url"], width=300)
+                else:
+                    st.warning("⚠️ No image available for this condition.")
+        
+                st.write(entry.get("description", "No description available."))
 
     else:
         with open("dermnet_conditions.json", "r") as f:
