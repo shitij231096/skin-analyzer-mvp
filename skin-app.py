@@ -1,3 +1,55 @@
+from PIL import Image
+import base64
+import io
+import openai
+
+openai.api_key = st.secrets["openai_api_key"]
+
+def encode_image(uploaded_file):
+    image_bytes = uploaded_file.read()
+    b64 = base64.b64encode(image_bytes).decode()
+    return f"data:image/jpeg;base64,{b64}"
+
+def match_skin_condition(user_image, derm_data):
+    encoded_img = encode_image(user_image)
+
+    sample_conditions = list(derm_data.items())[:5]
+    condition_texts = ""
+    for name, entry in sample_conditions:
+        condition_texts += f"\n### Condition: {name}\nImage: {entry['image_url']}\nDescription: {entry['description']}\n"
+
+    prompt = f"""
+You are a dermatologist AI assistant. A user has uploaded a photo of a skin condition.
+
+Below are 5 known skin conditions with example images and medical descriptions (from DermNet).
+
+Your job is to:
+1. Compare the user's image with the samples.
+2. Identify the **most likely match**.
+3. Briefly explain why.
+
+User Image: (shown below)
+
+{condition_texts}
+"""
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4-vision-preview",
+        messages=[
+            {"role": "system", "content": "You are a medical assistant that diagnoses common skin conditions based on image matching."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": encoded_img}}
+                ]
+            }
+        ],
+        max_tokens=500
+    )
+
+    return response.choices[0].message.content
+
 @st.cache_data(show_spinner=True)
 def scrape_dermnet():
     base_url = "https://dermnetnz.org"
