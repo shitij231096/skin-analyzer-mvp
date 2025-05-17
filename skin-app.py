@@ -2,11 +2,15 @@ from PIL import Image
 import base64
 import io
 import openai
+import os
+import json
+import streamlit as st
 
 openai.api_key = st.secrets["openai_api_key"]
 
 def encode_image(uploaded_file):
-    image_bytes = uploaded_file.read()
+    image_copy = io.BytesIO(uploaded_file.getvalue())
+    image_bytes = image_copy.read()
     b64 = base64.b64encode(image_bytes).decode()
     return f"data:image/jpeg;base64,{b64}"
 
@@ -68,6 +72,9 @@ def scrape_dermnet():
             try:
                 title = card.select_one("h3").text.strip()
                 image_url = card.select_one("img")["src"]
+                if image_url.startswith("/"):
+                    image_url = base_url + image_url
+
                 page_url = base_url + card["href"]
 
                 # Go to the page to get description
@@ -93,3 +100,40 @@ def scrape_dermnet():
 
     except Exception as e:
         return {"error": str(e)}
+
+st.set_page_config(page_title="Skin Analyzer AI", layout="centered")
+st.title("🧴 AI-Powered Skin Analyzer")
+st.markdown("Upload a photo of your skin and get a likely diagnosis based on DermNet samples using GPT-4 Vision.")
+
+# ✅ Upload image section
+image_file = st.file_uploader("📸 Upload or capture a skin image", type=["jpg", "jpeg", "png"])
+
+if image_file:
+    st.image(image_file, caption="Your uploaded image", use_column_width=True)
+
+    # ✅ Load or scrape DermNet data
+    if not os.path.exists("dermnet_conditions.json"):
+        st.warning("🛠️ No existing condition database found. Scraping DermNet now...")
+        derm_data = scrape_dermnet()
+        st.markdown("### 🗂️ Sample Reference Conditions Used:")
+        for name, entry in list(derm_data.items())[:5]:
+            with st.expander(f"{name}"):
+                st.image(entry["image_url"], width=300)
+                st.write(entry["description"])
+
+    else:
+        with open("dermnet_conditions.json", "r") as f:
+            derm_data = json.load(f)
+
+    # ✅ Button to call GPT-4 Vision
+    if st.button("🔍 Submit for AI Diagnosis"):
+        st.info("Analyzing your image using GPT-4 Vision...")
+        try:
+            result = match_skin_condition(image_file, derm_data)
+            st.success("✅ Diagnosis complete!")
+            st.markdown("### 🧠 AI Diagnosis Result:")
+            st.markdown(result, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"❌ GPT-4 Vision failed: {e}")
+else:
+    st.info("Please upload or capture a skin image to begin.")
