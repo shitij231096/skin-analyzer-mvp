@@ -1,66 +1,74 @@
 import streamlit as st
-from PIL import Image
-import random
+import requests
+from bs4 import BeautifulSoup
+import json
+import os
 
 st.set_page_config(page_title="Skin Analyzer MVP", layout="centered")
 st.title("🧴 Skin Analyzer (MVP)")
-st.markdown("Upload or click a photo of your skin to begin analysis.")
+st.markdown("We'll now scrape DermNet for common skin conditions...")
 
-# ✅ Dummy Diagnosis and Product Map
-conditions = [
-    {
-        "name": "Acne Vulgaris",
-        "advice": "Use a salicylic acid face wash and a non-comedogenic moisturizer.",
-        "products": [
-            {"name": "Neutrogena Oil-Free Acne Wash", "use": "Face wash", "link": "https://www.nykaa.com"},
-            {"name": "The Ordinary Niacinamide 10%", "use": "Serum", "link": "https://www.nykaa.com"}
-        ]
-    },
-    {
-        "name": "Eczema",
-        "advice": "Use a fragrance-free moisturizer with ceramides. Avoid hot water.",
-        "products": [
-            {"name": "CeraVe Moisturizing Cream", "use": "Moisturizer", "link": "https://www.nykaa.com"},
-            {"name": "Aveeno Skin Relief Lotion", "use": "Body lotion", "link": "https://www.nykaa.com"}
-        ]
-    },
-    {
-        "name": "Seborrheic Dermatitis",
-        "advice": "Use a gentle anti-fungal shampoo on affected areas. Moisturize regularly.",
-        "products": [
-            {"name": "Nizoral Anti-Dandruff Shampoo", "use": "Shampoo", "link": "https://www.nykaa.com"},
-            {"name": "Bioderma Sensibio DS+ Cream", "use": "Face cream", "link": "https://www.nykaa.com"}
-        ]
-    },
-    {
-        "name": "Rosacea",
-        "advice": "Avoid spicy food and heat. Use a soothing, alcohol-free toner.",
-        "products": [
-            {"name": "La Roche-Posay Toleriane Toner", "use": "Toner", "link": "https://www.nykaa.com"},
-            {"name": "Avene Antirougeurs Fort Cream", "use": "Redness reducer", "link": "https://www.nykaa.com"}
-        ]
-    }
-]
+# ✅ Step 1: Scrape data only if not already saved
+@st.cache_data(show_spinner=True)
+def scrape_dermnet():
+    base_url = "https://dermnetnz.org"
+    image_library_url = "https://dermnetnz.org/image-library"
 
-image_file = st.file_uploader("Upload a skin image", type=["jpg", "jpeg", "png"], accept_multiple_files=False)
+    try:
+        response = requests.get(image_library_url)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        condition_links = soup.select("a.css-1bp1ao4")  # A-Z condition links
+        condition_urls = [base_url + link['href'] for link in condition_links if link['href'].startswith("/topics")]
 
-if image_file:
-    image = Image.open(image_file)
-    st.image(image, caption="Your uploaded image", use_column_width=True)
-    st.success("✅ Image uploaded successfully!")
+        scraped_data = {}
 
-    if st.button("Submit for Analysis"):
-        st.info("🔍 Analyzing image...")
+        for url in condition_urls[:10]:  # limit to 10 for now
+            try:
+                page = requests.get(url)
+                page_soup = BeautifulSoup(page.text, 'html.parser')
 
-        condition = random.choice(conditions)
-        st.markdown(f"### 🧠 **Likely condition:** _{condition['name']}_")
-        st.markdown(f"💡 **Suggested care:** {condition['advice']}")
+                title = page_soup.find("h1").get_text().strip()
+                desc_tag = page_soup.find("p")
+                description = desc_tag.get_text().strip() if desc_tag else "No description available."
 
-        st.markdown("### 🛒 Recommended Products:")
-        for product in condition['products']:
-            st.markdown(f"- **{product['name']}** ({product['use']}) — [Buy]({product['link']})")
+                img_tag = page_soup.find("img")
+                image_url = img_tag['src'] if img_tag and 'src' in img_tag.attrs else None
+
+                scraped_data[title] = {
+                    "description": description,
+                    "image_url": image_url,
+                    "page": url
+                }
+
+            except Exception as e:
+                scraped_data[url] = {"error": str(e)}
+
+        # Save to JSON
+        with open("dermnet_conditions.json", "w") as f:
+            json.dump(scraped_data, f, indent=2)
+
+        return scraped_data
+
+    except Exception as e:
+        return {"error": str(e)}
+
+# ✅ Run scraper and display data
+if not os.path.exists("dermnet_conditions.json"):
+    st.info("Scraping conditions from DermNet...")
+    result = scrape_dermnet()
+    if "error" in result:
+        st.error(f"Scraping failed: {result['error']}")
+    else:
+        st.success("Scraping complete! Showing 10 conditions:")
+        for title, entry in result.items():
+            st.markdown(f"### 🧾 {title}")
+            st.image(entry["image_url"], width=300)
+            st.markdown(f"**Description**: {entry['description']}")
 else:
-    st.info("Please upload or take a photo to continue.")
-
-st.markdown("---")
-st.caption("This is a prototype. Diagnosis is simulated. No data is stored.")
+    st.success("✅ dermnet_conditions.json already exists. Ready for GPT-4 matching.")
+    with open("dermnet_conditions.json", "r") as f:
+        data = json.load(f)
+        for title, entry in data.items():
+            st.markdown(f"### 🧾 {title}")
+            st.image(entry["image_url"], width=300)
+            st.markdown(f"**Description**: {entry['description']}")
