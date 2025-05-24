@@ -34,7 +34,7 @@ def diagnose_skin_condition(img_b64):
         ]}
     ]
     resp = client.chat.completions.create(
-        model="gpt-4-vision-preview",
+        model="gpt-4o",
         messages=messages,
         max_tokens=400,
         temperature=0
